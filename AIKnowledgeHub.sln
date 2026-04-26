@@ -1,0 +1,22 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WinForms", "WinForms\WinForms.csproj", "{D69B1B99-E945-405B-8CE7-51509B4064B5}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BackEnd", "BackEnd\BackEnd.csproj", "{FB0FBA37-B935-4886-BAF9-DF8E97E475B8}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{D69B1B99-E945-405B-8CE7-51509B4064B5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D69B1B99-E945-405B-8CE7-51509B4064B5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D69B1B99-E945-405B-8CE7-51509B4064B5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D69B1B99-E945-405B-8CE7-51509B4064B5}.Release|Any CPU.Build.0 = Release|Any CPU
+		{FB0FBA37-B935-4886-BAF9-DF8E97E475B8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FB0FBA37-B935-4886-BAF9-DF8E97E475B8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FB0FBA37-B935-4886-BAF9-DF8E97E475B8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FB0FBA37-B935-4886-BAF9-DF8E97E475B8}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
