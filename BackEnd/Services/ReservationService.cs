@@ -24,19 +24,29 @@ namespace BackEnd.Services
             _mapper = mapper;
         }
 
-        public async Task<IEnumerable<ReservationDto>> GetAllReservationsAsync()
+        public async Task<IEnumerable<ReservationDto>> GetAllReservationsAsync(string userId, bool isPrivileged)
         {
             var reservations = await _reservationRepository.GetAllAsync();
+
+            // Guests only see the reservations they created.
+            if (!isPrivileged)
+                reservations = reservations.Where(r => r.ApplicationUserId == userId).ToList();
+
             return _mapper.Map<IEnumerable<ReservationDto>>(reservations);
         }
 
-        public async Task<ReservationDto?> GetReservationByIdAsync(int id)
+        public async Task<ReservationDto?> GetReservationByIdAsync(int id, string userId, bool isPrivileged)
         {
             var reservation = await _reservationRepository.GetByIdAsync(id);
-            return reservation == null ? null : _mapper.Map<ReservationDto>(reservation);
+            if (reservation == null) return null;
+
+            if (!isPrivileged && reservation.ApplicationUserId != userId)
+                throw new UnauthorizedAccessException("You can only access your own reservations.");
+
+            return _mapper.Map<ReservationDto>(reservation);
         }
 
-        public async Task<ReservationDto> CreateReservationAsync(CreateReservationDto createDto)
+        public async Task<ReservationDto> CreateReservationAsync(CreateReservationDto createDto, string userId)
         {
             // 1. Validate the dates
             if (createDto.CheckInDate.Date < DateTime.UtcNow.Date)
@@ -72,6 +82,7 @@ namespace BackEnd.Services
                 GuestId = createDto.GuestId,
                 CheckInDate = createDto.CheckInDate,
                 CheckOutDate = createDto.CheckOutDate,
+                ApplicationUserId = userId, // the creator owns this reservation
                 ReservationRooms = reservationRooms // attach the list of rooms
             };
 
@@ -92,10 +103,13 @@ namespace BackEnd.Services
             };
         }
 
-        public async Task UpdateReservationAsync(int id, UpdateReservationDto updateDto)
+        public async Task UpdateReservationAsync(int id, UpdateReservationDto updateDto, string userId, bool isPrivileged)
         {
             var reservation = await _reservationRepository.GetByIdAsync(id);
             if (reservation == null) throw new Exception("Reservation not found.");
+
+            if (!isPrivileged && reservation.ApplicationUserId != userId)
+                throw new UnauthorizedAccessException("You can only modify your own reservations.");
 
             if (updateDto.CheckOutDate <= updateDto.CheckInDate)
                 throw new ArgumentException("The check-out date must be later than the check-in date.");
@@ -104,10 +118,13 @@ namespace BackEnd.Services
             await _reservationRepository.UpdateAsync(reservation);
         }
 
-        public async Task DeleteReservationAsync(int id)
+        public async Task DeleteReservationAsync(int id, string userId, bool isPrivileged)
         {
             var reservation = await _reservationRepository.GetByIdAsync(id);
             if (reservation == null) throw new Exception("Reservation not found.");
+
+            if (!isPrivileged && reservation.ApplicationUserId != userId)
+                throw new UnauthorizedAccessException("You can only delete your own reservations.");
 
             await _reservationRepository.DeleteAsync(reservation);
         }

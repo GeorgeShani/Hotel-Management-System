@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using BackEnd.DTOs.Reservation;
 using BackEnd.Interfaces;
 using Microsoft.AspNetCore.Authorization;
@@ -17,11 +18,18 @@ namespace BackEnd.Controllers
             _reservationService = reservationService;
         }
 
+        // The Identity id of the caller (JWT "sub" → ClaimTypes.NameIdentifier).
+        private string CurrentUserId =>
+            User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub") ?? string.Empty;
+
+        // Admins and Managers may see and manage every reservation; Guests only their own.
+        private bool IsPrivileged => User.IsInRole("Admin") || User.IsInRole("Manager");
+
         // GET: api/reservations
         [HttpGet]
         public async Task<IActionResult> GetAllReservations()
         {
-            var reservations = await _reservationService.GetAllReservationsAsync();
+            var reservations = await _reservationService.GetAllReservationsAsync(CurrentUserId, IsPrivileged);
             return Ok(reservations);
         }
 
@@ -29,7 +37,7 @@ namespace BackEnd.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetReservation(int id)
         {
-            var reservation = await _reservationService.GetReservationByIdAsync(id);
+            var reservation = await _reservationService.GetReservationByIdAsync(id, CurrentUserId, IsPrivileged);
             if (reservation == null) return NotFound("Reservation not found.");
 
             return Ok(reservation);
@@ -41,7 +49,7 @@ namespace BackEnd.Controllers
         public async Task<IActionResult> CreateReservation([FromBody] CreateReservationDto createDto)
         {
             // The service validates the dates and room availability and computes the price
-            var reservation = await _reservationService.CreateReservationAsync(createDto);
+            var reservation = await _reservationService.CreateReservationAsync(createDto, CurrentUserId);
             return CreatedAtAction(nameof(GetReservation), new { id = reservation.Id }, reservation);
         }
 
@@ -49,7 +57,7 @@ namespace BackEnd.Controllers
         [HttpPut("{id}")]
         public async Task<IActionResult> UpdateReservation(int id, [FromBody] UpdateReservationDto updateDto)
         {
-            await _reservationService.UpdateReservationAsync(id, updateDto);
+            await _reservationService.UpdateReservationAsync(id, updateDto, CurrentUserId, IsPrivileged);
             return NoContent();
         }
 
@@ -57,7 +65,7 @@ namespace BackEnd.Controllers
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteReservation(int id)
         {
-            await _reservationService.DeleteReservationAsync(id);
+            await _reservationService.DeleteReservationAsync(id, CurrentUserId, IsPrivileged);
             return NoContent();
         }
     }

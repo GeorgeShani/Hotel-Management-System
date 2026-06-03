@@ -33,8 +33,14 @@ namespace BackEnd.Middlewares
             context.Response.StatusCode = (int)HttpStatusCode.InternalServerError;
             string message = "An internal server error occurred.";
 
+            // If the caller tried to access something that isn't theirs
+            if (exception is UnauthorizedAccessException)
+            {
+                context.Response.StatusCode = (int)HttpStatusCode.Forbidden; // 403 Forbidden
+                message = exception.Message;
+            }
             // If the error comes from our business logic (e.g. "the hotel cannot be deleted because it has rooms")
-            if (exception is InvalidOperationException || exception is ArgumentException)
+            else if (exception is InvalidOperationException || exception is ArgumentException)
             {
                 context.Response.StatusCode = (int)HttpStatusCode.BadRequest; // 400 Bad Request
                 message = exception.Message;

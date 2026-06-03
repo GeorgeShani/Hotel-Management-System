@@ -7,7 +7,7 @@ namespace BackEnd.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    [Authorize] // any logged-in role
+    [Authorize(Roles = "Admin,Manager")] // Guests may never manage guest records
     public class GuestsController : ControllerBase
     {
         private readonly IGuestService _guestService;
