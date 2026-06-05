@@ -24,29 +24,35 @@ namespace BackEnd.Services
             _mapper = mapper;
         }
 
-        public async Task<IEnumerable<ReservationDto>> GetAllReservationsAsync(string userId, bool isPrivileged)
+        // A reservation "belongs to" a signed-in guest when the guest record it
+        // points to carries the same email the user logged in with.
+        private static bool OwnedBy(Reservation reservation, string userEmail) =>
+            !string.IsNullOrWhiteSpace(userEmail) &&
+            string.Equals(reservation.Guest?.Email, userEmail, StringComparison.OrdinalIgnoreCase);
+
+        public async Task<IEnumerable<ReservationDto>> GetAllReservationsAsync(string userEmail, bool isPrivileged)
         {
             var reservations = await _reservationRepository.GetAllAsync();
 
-            // Guests only see the reservations they created.
+            // Guests only see reservations made for them (matched by their login email).
             if (!isPrivileged)
-                reservations = reservations.Where(r => r.ApplicationUserId == userId).ToList();
+                reservations = reservations.Where(r => OwnedBy(r, userEmail)).ToList();
 
             return _mapper.Map<IEnumerable<ReservationDto>>(reservations);
         }
 
-        public async Task<ReservationDto?> GetReservationByIdAsync(int id, string userId, bool isPrivileged)
+        public async Task<ReservationDto?> GetReservationByIdAsync(int id, string userEmail, bool isPrivileged)
         {
             var reservation = await _reservationRepository.GetByIdAsync(id);
             if (reservation == null) return null;
 
-            if (!isPrivileged && reservation.ApplicationUserId != userId)
+            if (!isPrivileged && !OwnedBy(reservation, userEmail))
                 throw new UnauthorizedAccessException("You can only access your own reservations.");
 
             return _mapper.Map<ReservationDto>(reservation);
         }
 
-        public async Task<ReservationDto> CreateReservationAsync(CreateReservationDto createDto, string userId)
+        public async Task<ReservationDto> CreateReservationAsync(CreateReservationDto createDto, string userEmail, bool isPrivileged)
         {
             // 1. Validate the dates
             if (createDto.CheckInDate.Date < DateTime.UtcNow.Date)
@@ -57,6 +63,12 @@ namespace BackEnd.Services
             // 2. Validate the guest
             var guest = await _guestRepository.GetByIdAsync(createDto.GuestId);
             if (guest == null) throw new Exception("Guest not found.");
+
+            // A non-privileged caller (Guest role) may only book for their own guest
+            // record - i.e. the one whose email matches their login.
+            if (!isPrivileged &&
+                !string.Equals(guest.Email, userEmail, StringComparison.OrdinalIgnoreCase))
+                throw new UnauthorizedAccessException("You can only create reservations for yourself.");
 
             // 3. Validate room existence and compute the total price
             decimal totalRoomsPrice = 0;
@@ -82,7 +94,6 @@ namespace BackEnd.Services
                 GuestId = createDto.GuestId,
                 CheckInDate = createDto.CheckInDate,
                 CheckOutDate = createDto.CheckOutDate,
-                ApplicationUserId = userId, // the creator owns this reservation
                 ReservationRooms = reservationRooms // attach the list of rooms
             };
 
@@ -103,12 +114,12 @@ namespace BackEnd.Services
             };
         }
 
-        public async Task UpdateReservationAsync(int id, UpdateReservationDto updateDto, string userId, bool isPrivileged)
+        public async Task UpdateReservationAsync(int id, UpdateReservationDto updateDto, string userEmail, bool isPrivileged)
         {
             var reservation = await _reservationRepository.GetByIdAsync(id);
             if (reservation == null) throw new Exception("Reservation not found.");
 
-            if (!isPrivileged && reservation.ApplicationUserId != userId)
+            if (!isPrivileged && !OwnedBy(reservation, userEmail))
                 throw new UnauthorizedAccessException("You can only modify your own reservations.");
 
             if (updateDto.CheckOutDate <= updateDto.CheckInDate)
@@ -118,12 +129,12 @@ namespace BackEnd.Services
             await _reservationRepository.UpdateAsync(reservation);
         }
 
-        public async Task DeleteReservationAsync(int id, string userId, bool isPrivileged)
+        public async Task DeleteReservationAsync(int id, string userEmail, bool isPrivileged)
         {
             var reservation = await _reservationRepository.GetByIdAsync(id);
             if (reservation == null) throw new Exception("Reservation not found.");
 
-            if (!isPrivileged && reservation.ApplicationUserId != userId)
+            if (!isPrivileged && !OwnedBy(reservation, userEmail))
                 throw new UnauthorizedAccessException("You can only delete your own reservations.");
 
             await _reservationRepository.DeleteAsync(reservation);

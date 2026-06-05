@@ -28,7 +28,15 @@ namespace BackEnd.Mappings
             CreateMap<UpdateGuestDto, BackEnd.Models.Guest>();
 
             // Reservation Mappings
-            CreateMap<BackEnd.Models.Reservation, ReservationDto>().ReverseMap();
+            CreateMap<BackEnd.Models.Reservation, ReservationDto>()
+                // RoomIds comes from the join table
+                .ForMember(d => d.RoomIds,
+                    opt => opt.MapFrom(s => s.ReservationRooms.Select(rr => rr.RoomId).ToList()))
+                // TotalPrice = (nights, min 1) * sum of the booked rooms' prices
+                .ForMember(d => d.TotalPrice,
+                    opt => opt.MapFrom(s =>
+                        (decimal)(((s.CheckOutDate - s.CheckInDate).Days <= 0) ? 1 : (s.CheckOutDate - s.CheckInDate).Days)
+                        * s.ReservationRooms.Sum(rr => rr.Room.Price)));
             CreateMap<CreateReservationDto, BackEnd.Models.Reservation>();
             CreateMap<UpdateReservationDto, BackEnd.Models.Reservation>();
 

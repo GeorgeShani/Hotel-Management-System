@@ -164,14 +164,19 @@ Base route: `api/[controller]`. Roles: **Admin**, **Manager**, **Guest**.
 |--------|-----------|--------|------------------------------------------------------|
 | GET    | `/`       | auth   | List reservations (Guests see only their own)        |
 | GET    | `/{id}`   | auth   | Get a reservation (Guests only if they own it)       |
-| POST   | `/`       | Guest  | Create a reservation (price is calculated)           |
+| POST   | `/`       | auth   | Create a reservation (price is calculated)           |
 | PUT    | `/{id}`   | auth   | Update reservation dates (Guests only their own)     |
 | DELETE | `/{id}`   | auth   | Delete a reservation (Guests only their own)         |
 
-> **Ownership:** each reservation records the Identity id of the user who created it
-> (`ApplicationUserId`). **Admin** and **Manager** see and manage every reservation; a
-> **Guest** is restricted to the reservations they created — attempting to read, edit or
-> delete someone else's returns **403 Forbidden**.
+> **Ownership (by email):** a reservation points to a `Guest` record, and each `Guest`
+> record carries an **Email**. A reservation "belongs to" the signed-in user when that
+> guest email matches the email on their login account. **Admin** and **Manager** see and
+> manage every reservation; a **Guest** is restricted to reservations made for them —
+> attempting to read, edit or delete someone else's returns **403 Forbidden**.
+>
+> So for a guest to sign in and see reservations made on their behalf: create the `Guest`
+> record with the **same email** the person registers/logs in with, then book reservations
+> against that guest.
 
 ### Authentication flow
 
@@ -261,9 +266,9 @@ intended only for local development.
 3. Register or log in, then use the tabs.
 
 > **Permissions:** the UI reflects the API's role rules. For example, creating hotels/managers
-> requires an **Admin** token, creating reservations requires a **Guest** token, and the Guests
-> tab is only visible to Admin/Manager. Calls made without the right role return an authorization
-> error shown in a message box.
+> requires an **Admin** token, any signed-in user can create reservations, and the Guests tab is
+> only visible to Admin/Manager. Calls made without the right role return an authorization error
+> shown in a message box.
 
 ---
 

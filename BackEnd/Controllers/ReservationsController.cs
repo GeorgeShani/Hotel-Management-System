@@ -1,3 +1,4 @@
+using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using BackEnd.DTOs.Reservation;
 using BackEnd.Interfaces;
@@ -18,9 +19,13 @@ namespace BackEnd.Controllers
             _reservationService = reservationService;
         }
 
-        // The Identity id of the caller (JWT "sub" → ClaimTypes.NameIdentifier).
-        private string CurrentUserId =>
-            User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub") ?? string.Empty;
+        // The email the caller signed in with (JWT "email" claim). A guest's
+        // reservations are matched to their Guest record by this email.
+        private string CurrentUserEmail =>
+            User.FindFirstValue(ClaimTypes.Email)
+            ?? User.FindFirstValue(JwtRegisteredClaimNames.Email)
+            ?? User.FindFirstValue("email")
+            ?? string.Empty;
 
         // Admins and Managers may see and manage every reservation; Guests only their own.
         private bool IsPrivileged => User.IsInRole("Admin") || User.IsInRole("Manager");
@@ -29,7 +34,7 @@ namespace BackEnd.Controllers
         [HttpGet]
         public async Task<IActionResult> GetAllReservations()
         {
-            var reservations = await _reservationService.GetAllReservationsAsync(CurrentUserId, IsPrivileged);
+            var reservations = await _reservationService.GetAllReservationsAsync(CurrentUserEmail, IsPrivileged);
             return Ok(reservations);
         }
 
@@ -37,7 +42,7 @@ namespace BackEnd.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetReservation(int id)
         {
-            var reservation = await _reservationService.GetReservationByIdAsync(id, CurrentUserId, IsPrivileged);
+            var reservation = await _reservationService.GetReservationByIdAsync(id, CurrentUserEmail, IsPrivileged);
             if (reservation == null) return NotFound("Reservation not found.");
 
             return Ok(reservation);
@@ -45,11 +50,11 @@ namespace BackEnd.Controllers
 
         // POST: api/reservations
         [HttpPost]
-        [Authorize(Roles = "Guest")] // only a Guest can make a reservation
+        [Authorize(Roles = "Admin,Manager,Guest")] // any signed-in role can make a reservation
         public async Task<IActionResult> CreateReservation([FromBody] CreateReservationDto createDto)
         {
             // The service validates the dates and room availability and computes the price
-            var reservation = await _reservationService.CreateReservationAsync(createDto, CurrentUserId);
+            var reservation = await _reservationService.CreateReservationAsync(createDto, CurrentUserEmail, IsPrivileged);
             return CreatedAtAction(nameof(GetReservation), new { id = reservation.Id }, reservation);
         }
 
@@ -57,7 +62,7 @@ namespace BackEnd.Controllers
         [HttpPut("{id}")]
         public async Task<IActionResult> UpdateReservation(int id, [FromBody] UpdateReservationDto updateDto)
         {
-            await _reservationService.UpdateReservationAsync(id, updateDto, CurrentUserId, IsPrivileged);
+            await _reservationService.UpdateReservationAsync(id, updateDto, CurrentUserEmail, IsPrivileged);
             return NoContent();
         }
 
@@ -65,7 +70,7 @@ namespace BackEnd.Controllers
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteReservation(int id)
         {
-            await _reservationService.DeleteReservationAsync(id, CurrentUserId, IsPrivileged);
+            await _reservationService.DeleteReservationAsync(id, CurrentUserEmail, IsPrivileged);
             return NoContent();
         }
     }

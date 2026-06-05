@@ -44,6 +44,8 @@ public class GuestModel
     [Description("Unique personal number (cannot be changed after creation)")]
     public string PersonalNumber { get; set; } = string.Empty;
     public string PhoneNumber { get; set; } = string.Empty;
+    [Description("Login email – must match the account the guest signs in with so they can see their reservations")]
+    public string Email { get; set; } = string.Empty;
 }
 
 // View-model used by the Managers tab.

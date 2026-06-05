@@ -351,7 +351,8 @@ public partial class MainForm : Form
         Bullet("Managers: a manager is assigned to a hotel via 'Hotel Id'. Email and personal number are set only at creation.");
         Bullet("Guests / Managers: 'Personal number' must be unique and cannot be changed after creation.");
         Bullet("Reservations: enter 'Guest Id' and one or more 'Room ids' as a comma-separated list (e.g. 1,2). Pick check-in / check-out dates; the 'Total price' is calculated by the server and shown after saving.");
-        Bullet("Reservations are owned by their creator: as a Guest you only see and manage the reservations you made, while Admins and Managers see all of them.");
+        Bullet("Linking a guest to a login: when you create a Guest record, set its 'Login email' to the email that person uses to sign in. The system matches the two so the guest sees the reservations made for them.");
+        Bullet("Reservation ownership: a Guest sees and manages only reservations whose guest record email matches their login; Admins and Managers see all of them.");
         Gap();
 
         Heading("Troubleshooting");
@@ -422,12 +423,13 @@ public partial class MainForm : Form
             new FormField(nameof(GuestModel.FirstName), "First name", FieldKind.Text),
             new FormField(nameof(GuestModel.LastName), "Last name", FieldKind.Text),
             new FormField(nameof(GuestModel.PersonalNumber), "Personal number", FieldKind.Text),
-            new FormField(nameof(GuestModel.PhoneNumber), "Phone", FieldKind.Text))
+            new FormField(nameof(GuestModel.PhoneNumber), "Phone", FieldKind.Text),
+            new FormField(nameof(GuestModel.Email), "Login email", FieldKind.Text))
         {
             GetId = g => g.Id,
             LoadList = () => _api.GetListAsync<GuestModel>("api/Guests"),
-            CreateItem = g => _api.PostAsync("api/Guests", new { g.FirstName, g.LastName, g.PersonalNumber, g.PhoneNumber }),
-            UpdateItem = g => _api.PutAsync($"api/Guests/{g.Id}", new { g.FirstName, g.LastName, g.PhoneNumber }),
+            CreateItem = g => _api.PostAsync("api/Guests", new { g.FirstName, g.LastName, g.PersonalNumber, g.PhoneNumber, g.Email }),
+            UpdateItem = g => _api.PutAsync($"api/Guests/{g.Id}", new { g.FirstName, g.LastName, g.PhoneNumber, g.Email }),
             DeleteItem = g => _api.DeleteAsync($"api/Guests/{g.Id}")
         };
     }
