@@ -93,6 +93,37 @@ dotnet ef migrations add InitialCreate
 dotnet ef database update
 ```
 
+### Demo data & accounts (auto-seeded)
+
+On startup the API runs `Data/DataSeeder.cs`. The rule is simple: **if the database is empty,
+seed everything; if it already has any data, do nothing.** That single guard is what prevents
+duplicates. When it does seed, it creates:
+
+- The `Admin`, `Manager`, `Guest` roles.
+- Demo logins:
+
+  | Role | Email | Password |
+  |------|-------|----------|
+  | Admin | `admin@hms.local` | `Admin#123` |
+  | Manager | `manager@hms.local` | `Manager#123` |
+  | Guest | `john@hms.local` | `Guest#123` |
+  | Guest | `jane@hms.local` | `Guest#123` |
+
+- Sample business data: **6 hotels**, ~**19 rooms**, **5 guests**, **3 managers**, and a couple
+  of sample reservations. The `john@hms.local` and `jane@hms.local` guest profiles match the demo
+  Guest logins, so those accounts can immediately book and see their own reservations.
+
+You can also trigger seeding on demand (without restarting) via **`POST /api/Seed`** (no token
+needed). Remember the rule — it only seeds a **completely empty** database; on a database that
+already has data it's a no-op:
+
+```bash
+curl -X POST http://localhost:5126/api/Seed
+# → { "message": "...", "hotels": 6, "rooms": 19, "guests": 5, ... }
+```
+
+> Change or remove the demo accounts/data before any real deployment.
+
 ### Running
 
 ```bash
@@ -132,6 +163,7 @@ Base route: `api/[controller]`. Roles: **Admin**, **Manager**, **Guest**.
 #### Rooms — `api/Rooms`
 | Method | Route                  | Auth           | Description                  |
 |--------|------------------------|----------------|------------------------------|
+| GET    | `/`                    | anon           | List all rooms (any hotel)   |
 | GET    | `/hotel/{hotelId}`     | anon           | List rooms of a hotel        |
 | GET    | `/{id}`                | anon           | Get a room                   |
 | POST   | `/`                    | Admin, Manager | Create a room                |
@@ -177,6 +209,18 @@ Base route: `api/[controller]`. Roles: **Admin**, **Manager**, **Guest**.
 > So for a guest to sign in and see reservations made on their behalf: create the `Guest`
 > record with the **same email** the person registers/logs in with, then book reservations
 > against that guest.
+>
+> When a **Guest** creates a reservation, the server **ignores any guest id** sent and derives
+> it from their login email, so a guest can only ever book for themselves. Admin/Manager
+> choose the guest explicitly.
+
+#### Seed — `api/Seed` (no auth — demo/dev convenience)
+| Method | Route | Description                                                        |
+|--------|-------|--------------------------------------------------------------------|
+| POST   | `/`   | Re-runs the idempotent data seeder and returns current row counts. |
+
+> Open on purpose so it can be triggered from Swagger/`curl` with no token. The seeder is
+> idempotent (no duplicates). **Lock this down before any real deployment.**
 
 ### Authentication flow
 
@@ -217,7 +261,7 @@ WinForms/
 ├─ Services/ApiClient.cs   → HttpClient wrapper: JWT handling + typed REST calls
 └─ Controls/
    ├─ EntityView.cs        → reusable master/detail CRUD view (grid + labeled form + buttons)
-   └─ FormField.cs         → typed input field (text / int / decimal / date)
+   └─ FormField.cs         → typed input field (text / int / decimal / date / dropdown / checklist)
 ```
 
 ### How it works
@@ -231,23 +275,31 @@ WinForms/
   - clicking a row loads its values into a **labeled form** below (showing “— editing record #N”),
   - **+ New / Save / Delete** buttons. `+ New` clears the form for a new record; `Save` creates
     when `Id == 0`, otherwise updates.
-- **Rooms tab** has a *Hotel Id* selector because rooms are listed per hotel
-  (`GET /api/Rooms/hotel/{hotelId}`).
-- **Reservations tab** edits `RoomIds` as a comma-separated string (e.g. `1,2,3`) and shows the
-  server-calculated `TotalPrice`.
+- **Foreign keys are dropdowns, not raw ids.** The Rooms and Managers forms pick a hotel from
+  a **Hotel dropdown**; the Rooms tab also filters the grid by a hotel dropdown in its toolbar.
+- **Reservations tab** picks rooms from a **multi-select checklist** (name + hotel + price) and,
+  for Admin/Manager, the guest from a dropdown (a Guest books for themselves automatically).
+  Instead of picking dates, you enter the **number of days**: the stay starts today and the
+  check-in/check-out dates are derived from it. `TotalPrice` is calculated by the server.
 
 ### Permissions in the UI
 
 The client mirrors the API's authorization rules so blocked actions are surfaced before (or as)
 the server rejects them:
 
-- **Hotels / Rooms** — anyone can browse; creating, editing and deleting require **Admin**
-  (Rooms also **Manager**). Write buttons are locked with an explanatory note otherwise.
-- **Guests** — the tab is hidden unless you're signed in as **Admin** or **Manager**; the Guest
-  role has no access to guest records at all.
-- **Managers** — Admin only.
-- **Reservations** — any signed-in user; a **Guest** sees and manages only the reservations they
-  created.
+Tabs a role can't use are **hidden** (not just disabled):
+
+| Tab | Anonymous | Guest | Manager | Admin |
+|-----|-----------|-------|---------|-------|
+| Hotels | view | view | view | manage |
+| Rooms | view | view | manage | manage |
+| Guests | hidden | hidden | manage | manage |
+| Managers | hidden | hidden | hidden | manage |
+| Reservations | hidden | own (view + book) | all | all |
+| Help | yes | yes | yes | yes |
+
+Where a tab is visible but the role can't write, the create/edit/delete buttons are locked with
+an explanatory note.
 
 ### Configuration
 
@@ -288,3 +340,10 @@ dotnet run        # https://localhost:7003 (+ Swagger)
 cd ../WinForms
 dotnet run
 ```
+
+---
+
+## Contributors
+
+- **Akaki Zaqariadze** — [@L-LAWwliett](https://github.com/L-LAWwliett)
+- **Davit Sharipashvili** — [@DatoShar](https://github.com/DatoShar)

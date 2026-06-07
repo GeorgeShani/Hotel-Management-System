@@ -100,6 +100,22 @@ builder.Services.AddAuthentication(options =>
 
 var app = builder.Build();
 
+// Seed roles, demo logins and sample data on startup (only inserts what's missing).
+// Wrapped so a transient DB hiccup at boot doesn't crash the whole app - seeding can
+// always be re-run later via POST /api/Seed.
+using (var scope = app.Services.CreateScope())
+{
+    try
+    {
+        await BackEnd.Data.DataSeeder.SeedAsync(scope.ServiceProvider);
+    }
+    catch (Exception ex)
+    {
+        var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+        logger.LogError(ex, "Data seeding failed at startup; continuing. Use POST /api/Seed to retry.");
+    }
+}
+
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
@@ -110,7 +126,12 @@ if (app.Environment.IsDevelopment())
 // ერორების დამჭერი
 app.UseMiddleware<BackEnd.Middlewares.ExceptionMiddleware>();
 
-app.UseHttpsRedirection();
+// NOTE: No HTTPS redirect here on purpose.
+// This API is consumed by the WinForms desktop client. If we redirect HTTP -> HTTPS,
+// HttpClient follows the redirect but strips the "Authorization" header on the
+// cross-scheme hop, so the bearer token is lost and authenticated calls get 401.
+// The client already talks to both http://localhost:5126 and https://localhost:7003,
+// so we serve both schemes directly and let the token through untouched.
 
 app.UseAuthentication();
 

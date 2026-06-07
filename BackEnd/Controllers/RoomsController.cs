@@ -16,6 +16,15 @@ namespace BackEnd.Controllers
             _roomService = roomService;
         }
 
+        // GET: api/rooms
+        // (returns every room across all hotels - used to pick rooms when booking)
+        [HttpGet]
+        public async Task<IActionResult> GetAllRooms()
+        {
+            var rooms = await _roomService.GetAllRoomsAsync();
+            return Ok(rooms);
+        }
+
         // GET: api/rooms/hotel/1
         // (returns all rooms of a specific hotel)
         [HttpGet("hotel/{hotelId}")]

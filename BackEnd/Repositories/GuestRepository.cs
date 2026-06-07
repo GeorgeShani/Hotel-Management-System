@@ -15,5 +15,11 @@ namespace BackEnd.Repositories
         {
             return await _context.Guests.AnyAsync(g => g.PersonalNumber == personalNumber);
         }
+
+        public async Task<Guest?> GetByEmailAsync(string email)
+        {
+            return await _context.Guests
+                .FirstOrDefaultAsync(g => g.Email == email);
+        }
     }
 }

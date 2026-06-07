@@ -18,6 +18,12 @@ namespace BackEnd.Services
             _mapper = mapper;
         }
 
+        public async Task<IEnumerable<RoomDto>> GetAllRoomsAsync()
+        {
+            var rooms = await _roomRepository.GetAllAsync();
+            return _mapper.Map<IEnumerable<RoomDto>>(rooms);
+        }
+
         public async Task<IEnumerable<RoomDto>> GetRoomsByHotelIdAsync(int hotelId)
         {
             var rooms = await _roomRepository.GetRoomsByHotelIdAsync(hotelId);

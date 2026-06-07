@@ -28,6 +28,8 @@ public class EntityView<T> : UserControl, IEntityView where T : class, new()
     private readonly Button _btnDelete = new() { Text = "Delete" };
     private readonly Label _lockNote = new() { AutoSize = true, ForeColor = UiTheme.Danger, Font = UiTheme.Base, Visible = false };
     private readonly FormField[] _fields;
+    private readonly Dictionary<string, Panel> _holders = new();
+    private readonly int _editorHeight;
     private bool _canWrite = true;
 
     public FlowLayoutPanel Toolbar { get; } = new() { Dock = DockStyle.Top, Height = 44, Padding = new Padding(8, 6, 8, 6), BackColor = UiTheme.Card };
@@ -46,8 +48,12 @@ public class EntityView<T> : UserControl, IEntityView where T : class, new()
     public Func<T>? NewItem { get; set; }
 
     public EntityView(string title, params FormField[] fields)
+        : this(title, 230, fields) { }
+
+    public EntityView(string title, int editorHeight, params FormField[] fields)
     {
         _fields = fields;
+        _editorHeight = editorHeight;
         Dock = DockStyle.Fill;
         BackColor = UiTheme.Bg;
         Padding = new Padding(16);
@@ -94,7 +100,7 @@ public class EntityView<T> : UserControl, IEntityView where T : class, new()
     // ---- Editor form -----------------------------------------------------
     private Control BuildEditorCard()
     {
-        var card = new Panel { Dock = DockStyle.Bottom, Height = 230, BackColor = UiTheme.Card, Padding = new Padding(1) };
+        var card = new Panel { Dock = DockStyle.Bottom, Height = _editorHeight, BackColor = UiTheme.Card, Padding = new Padding(1) };
         card.BorderStyle = BorderStyle.FixedSingle;
 
         var header = new Panel { Dock = DockStyle.Top, Height = 34, BackColor = UiTheme.Card, Padding = new Padding(12, 8, 12, 0) };
@@ -104,13 +110,15 @@ public class EntityView<T> : UserControl, IEntityView where T : class, new()
 
         foreach (var f in _fields)
         {
-            var holder = new Panel { Width = 224, Height = 52, Margin = new Padding(4) };
+            var isMulti = f.Kind == FieldKind.MultiSelect;
+            var holder = new Panel { Width = isMulti ? 360 : 224, Height = isMulti ? 156 : 52, Margin = new Padding(4) };
             holder.Controls.Add(new Label { Text = f.Label, AutoSize = true, ForeColor = UiTheme.TextMuted, Font = UiTheme.Small, Location = new Point(2, 0) });
             var input = f.Build();
             input.Location = new Point(2, 20);
-            input.Width = 214;
+            input.Width = isMulti ? 340 : 214;
             holder.Controls.Add(input);
             _fieldsPanel.Controls.Add(holder);
+            _holders[f.Property] = holder;
         }
 
         var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 48, Padding = new Padding(12, 7, 12, 7), BackColor = UiTheme.Card };
@@ -165,11 +173,24 @@ public class EntityView<T> : UserControl, IEntityView where T : class, new()
         _lockNote.Visible = !enabled && !string.IsNullOrEmpty(reason);
     }
 
+    // Shows/hides a single field (e.g. hide the Guest dropdown from the Guest role).
+    public void SetFieldVisible(string property, bool visible)
+    {
+        if (_holders.TryGetValue(property, out var holder)) holder.Visible = visible;
+    }
+
     public async Task RefreshAsync()
     {
         if (LoadList is null) return;
         await Guard(async () =>
         {
+            // Populate dropdown / checklist choices first (skip hidden fields so a
+            // restricted role doesn't call an endpoint it isn't allowed to).
+            foreach (var f in _fields)
+                if (f.OptionsProvider is not null &&
+                    (!_holders.TryGetValue(f.Property, out var h) || h.Visible))
+                    await f.LoadOptionsAsync();
+
             var items = await LoadList();
             _grid.DataSource = new BindingList<T>(items);
             StartNew();
@@ -184,7 +205,10 @@ public class EntityView<T> : UserControl, IEntityView where T : class, new()
             var prop = GetProp(f.Property);
             if (prop is null || !prop.CanWrite) continue;
             var value = f.GetValue();
-            prop.SetValue(model, value is null ? null : Convert.ChangeType(value, prop.PropertyType));
+            if (value is not null && prop.PropertyType.IsInstanceOfType(value))
+                prop.SetValue(model, value);                       // e.g. List<int> room ids
+            else
+                prop.SetValue(model, value is null ? null : Convert.ChangeType(value, prop.PropertyType));
         }
         return model;
     }

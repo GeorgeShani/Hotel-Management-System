@@ -60,15 +60,23 @@ namespace BackEnd.Services
             if (createDto.CheckOutDate <= createDto.CheckInDate)
                 throw new ArgumentException("The check-out date must be later than the check-in date.");
 
-            // 2. Validate the guest
-            var guest = await _guestRepository.GetByIdAsync(createDto.GuestId);
-            if (guest == null) throw new Exception("Guest not found.");
-
-            // A non-privileged caller (Guest role) may only book for their own guest
-            // record - i.e. the one whose email matches their login.
-            if (!isPrivileged &&
-                !string.Equals(guest.Email, userEmail, StringComparison.OrdinalIgnoreCase))
-                throw new UnauthorizedAccessException("You can only create reservations for yourself.");
+            // 2. Resolve which guest the reservation is for.
+            Guest? guest;
+            if (isPrivileged)
+            {
+                // Admin / Manager book on behalf of any guest (chosen in the UI).
+                guest = await _guestRepository.GetByIdAsync(createDto.GuestId);
+                if (guest == null) throw new Exception("Guest not found.");
+            }
+            else
+            {
+                // A Guest can only book for their own profile, found via their login email,
+                // so the client never has to send (or know) a guest id.
+                guest = await _guestRepository.GetByEmailAsync(userEmail);
+                if (guest == null)
+                    throw new UnauthorizedAccessException(
+                        "No guest profile is linked to your account — ask the hotel to add you.");
+            }
 
             // 3. Validate room existence and compute the total price
             decimal totalRoomsPrice = 0;
@@ -91,7 +99,7 @@ namespace BackEnd.Services
             // 5. Create the reservation
             var reservationEntity = new Reservation
             {
-                GuestId = createDto.GuestId,
+                GuestId = guest.Id,
                 CheckInDate = createDto.CheckInDate,
                 CheckOutDate = createDto.CheckOutDate,
                 ReservationRooms = reservationRooms // attach the list of rooms

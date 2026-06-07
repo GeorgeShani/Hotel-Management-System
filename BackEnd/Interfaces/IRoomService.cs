@@ -4,6 +4,7 @@ namespace BackEnd.Interfaces
 {
     public interface IRoomService
     {
+        Task<IEnumerable<RoomDto>> GetAllRoomsAsync();
         Task<IEnumerable<RoomDto>> GetRoomsByHotelIdAsync(int hotelId);
         Task<RoomDto?> GetRoomByIdAsync(int id);
         Task<RoomDto> CreateRoomAsync(CreateRoomDto createRoomDto);

@@ -74,15 +74,22 @@ public class ReservationDtoJson
     public decimal TotalPrice { get; set; }
 }
 
-// View-model used by the Reservations tab. RoomIds is edited as a CSV string
-// because PropertyGrid cannot conveniently edit a List<int>.
+// View-model used by the Reservations tab. RoomIds is a real List<int> (picked via
+// a checklist); RoomsSummary is a friendly string shown in the grid instead.
 public class ReservationModel
 {
     [ReadOnly(true)]
     public int Id { get; set; }
     public int GuestId { get; set; }
-    [Description("Comma-separated room ids, e.g. 1,2,3")]
-    public string RoomIds { get; set; } = string.Empty;
+    // Hidden from the grid (a List<int> renders badly); edited via the room checklist.
+    [Browsable(false)]
+    public List<int> RoomIds { get; set; } = new();
+    [Description("Rooms booked in this reservation")]
+    public string RoomsSummary { get; set; } = string.Empty;
+    // Number of days/nights the guest stays (form input). The stay starts today,
+    // so the actual dates below are derived from this.
+    [Browsable(false)]
+    public int Days { get; set; } = 1;
     public DateTime CheckInDate { get; set; } = DateTime.Today;
     public DateTime CheckOutDate { get; set; } = DateTime.Today.AddDays(1);
     [ReadOnly(true)]

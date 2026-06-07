@@ -215,25 +215,30 @@ public partial class MainForm : Form
     private bool SignedIn => _api.IsAuthenticated;
     private bool HasRole(params string[] roles) => roles.Any(r => _roles.Contains(r, StringComparer.OrdinalIgnoreCase));
 
-    // Mirrors the BackEnd authorization rules in the UI: viewing is open for
-    // Hotels/Rooms, but creating/editing/deleting needs an authorized role.
+    // Mirrors the BackEnd authorization rules in the UI. Each tab has both a
+    // visibility rule (hide sections a role can't use at all) and a write rule
+    // (show but lock create/edit/delete). Browsing Hotels/Rooms stays open.
     private void ApplyPermissions()
     {
-        Set("Hotels", HasRole("Admin"), "Sign in as Admin to add, edit or delete hotels.");
-        Set("Rooms", HasRole("Admin", "Manager"), "Sign in as Admin or Manager to add, edit or delete rooms.");
-        Set("Managers", HasRole("Admin"), "Sign in as Admin to manage managers.");
-        Set("Reservations", SignedIn, "Sign in to add, edit or delete reservations.");
+        var isAdmin = HasRole("Admin");
+        var staff = HasRole("Admin", "Manager");
 
-        // Guest records are off-limits to the Guest role entirely – the API rejects
-        // even reading them – so the whole tab is hidden unless you're Admin/Manager.
-        var canSeeGuests = HasRole("Admin", "Manager");
-        Set("Guests", canSeeGuests, "Sign in as Admin or Manager to manage guests.");
-        SetTabVisible("Guests", canSeeGuests);
+        Configure("Hotels", visible: true, canWrite: isAdmin, "Sign in as Admin to add, edit or delete hotels.");
+        Configure("Rooms", visible: true, canWrite: staff, "Sign in as Admin or Manager to add, edit or delete rooms.");
+        Configure("Guests", visible: staff, canWrite: staff, "Sign in as Admin or Manager to manage guests.");
+        Configure("Managers", visible: isAdmin, canWrite: isAdmin, "Sign in as Admin to manage managers.");
+        Configure("Reservations", visible: SignedIn, canWrite: SignedIn, "Sign in to add, edit or delete reservations.");
 
-        void Set(string name, bool enabled, string reason)
+        // A Guest books only for themselves, so hide the Guest picker for non-staff
+        // (the server fills in the guest from their login email).
+        if (_views.TryGetValue("Reservations", out var rv) && rv is EntityView<ReservationModel> resView)
+            resView.SetFieldVisible(nameof(ReservationModel.GuestId), staff);
+
+        void Configure(string name, bool visible, bool canWrite, string reason)
         {
             if (_views.TryGetValue(name, out var v) && v is IEntityView ev)
-                ev.SetWriteEnabled(enabled, enabled ? null : reason);
+                ev.SetWriteEnabled(canWrite, canWrite ? null : reason);
+            SetTabVisible(name, visible);
         }
 
         void SetTabVisible(string name, bool visible)
@@ -330,6 +335,13 @@ public partial class MainForm : Form
         Bullet("Browsing Hotels and Rooms works without signing in; everything else requires a signed-in account.");
         Gap();
 
+        Heading("Demo accounts (seeded on a fresh database)");
+        Bullet("Admin:   admin@hms.local   /  Admin#123");
+        Bullet("Manager: manager@hms.local /  Manager#123");
+        Bullet("Guest:   john@hms.local    /  Guest#123   (already linked to a guest profile, so you can book right away)");
+        Bullet("Guest:   jane@hms.local    /  Guest#123   (a second guest, to demo that guests only see their own reservations)");
+        Gap();
+
         Heading("Roles & permissions");
         Bullet("Admin  – full access: manage Hotels, Rooms, Managers, Guests and Reservations.");
         Bullet("Manager – can manage Rooms and Guests (plus Reservations).");
@@ -347,10 +359,10 @@ public partial class MainForm : Form
         Gap();
 
         Heading("Tab-specific notes");
-        Bullet("Rooms: rooms belong to a hotel. Set 'Show rooms for Hotel Id' at the top to list a hotel's rooms, and set 'Hotel Id' in the form when creating a room.");
-        Bullet("Managers: a manager is assigned to a hotel via 'Hotel Id'. Email and personal number are set only at creation.");
+        Bullet("Rooms: pick a hotel from the dropdown at the top to list its rooms, and choose the hotel from the 'Hotel' dropdown in the form when creating a room.");
+        Bullet("Managers: a manager is assigned to a hotel via the 'Hotel' dropdown. Email and personal number are set only at creation.");
         Bullet("Guests / Managers: 'Personal number' must be unique and cannot be changed after creation.");
-        Bullet("Reservations: enter 'Guest Id' and one or more 'Room ids' as a comma-separated list (e.g. 1,2). Pick check-in / check-out dates; the 'Total price' is calculated by the server and shown after saving.");
+        Bullet("Reservations: tick the rooms you want in the 'Rooms' checklist, enter how many days the guest stays, then Save. The stay starts today and the 'Total price' is calculated by the server. Admins/Managers also choose the guest from a dropdown; a Guest books for themselves automatically.");
         Bullet("Linking a guest to a login: when you create a Guest record, set its 'Login email' to the email that person uses to sign in. The system matches the two so the guest sees the reservations made for them.");
         Bullet("Reservation ownership: a Guest sees and manages only reservations whose guest record email matches their login; Admins and Managers see all of them.");
         Gap();
@@ -397,22 +409,36 @@ public partial class MainForm : Form
 
     private EntityView<RoomModel> BuildRooms()
     {
-        var hotelId = new NumericUpDown { Minimum = 1, Maximum = 1_000_000, Value = 1, Width = 80, Font = UiTheme.Base };
+        var hotelFilter = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 240, Font = UiTheme.Base, DisplayMember = "Text", ValueMember = "Id" };
+        var populating = false;
+
         var view = new EntityView<RoomModel>("Rooms",
             new FormField(nameof(RoomModel.Id), "Id", FieldKind.Int, readOnly: true),
             new FormField(nameof(RoomModel.Name), "Name", FieldKind.Text),
             new FormField(nameof(RoomModel.Price), "Price", FieldKind.Decimal),
-            new FormField(nameof(RoomModel.HotelId), "Hotel Id", FieldKind.Int))
+            new FormField(nameof(RoomModel.HotelId), "Hotel", FieldKind.Select, HotelOptionsAsync))
         {
             GetId = r => r.Id,
-            NewItem = () => new RoomModel { HotelId = (int)hotelId.Value },
-            LoadList = () => _api.GetListAsync<RoomModel>($"api/Rooms/hotel/{(int)hotelId.Value}"),
+            NewItem = () => new RoomModel { HotelId = hotelFilter.SelectedValue as int? ?? 0 },
+            LoadList = async () =>
+            {
+                if (hotelFilter.Items.Count == 0)
+                {
+                    populating = true;
+                    hotelFilter.DataSource = new List<SelectOption>(await HotelOptionsAsync());
+                    populating = false;
+                }
+                var hid = hotelFilter.SelectedValue as int? ?? 0;
+                return hid == 0 ? new List<RoomModel>()
+                                : await _api.GetListAsync<RoomModel>($"api/Rooms/hotel/{hid}");
+            },
             CreateItem = r => _api.PostAsync("api/Rooms", new { r.Name, r.Price, r.HotelId }),
             UpdateItem = r => _api.PutAsync($"api/Rooms/{r.Id}", new { r.Name, r.Price }),
             DeleteItem = r => _api.DeleteAsync($"api/Rooms/{r.Id}")
         };
-        view.Toolbar.Controls.Add(new Label { Text = "Show rooms for Hotel Id:", AutoSize = true, ForeColor = UiTheme.TextMuted, Margin = new Padding(14, 9, 4, 0) });
-        view.Toolbar.Controls.Add(hotelId);
+        hotelFilter.SelectedIndexChanged += (_, _) => { if (!populating) _ = view.RefreshAsync(); };
+        view.Toolbar.Controls.Add(new Label { Text = "Hotel:", AutoSize = true, ForeColor = UiTheme.TextMuted, Margin = new Padding(14, 9, 4, 0) });
+        view.Toolbar.Controls.Add(hotelFilter);
         return view;
     }
 
@@ -443,7 +469,7 @@ public partial class MainForm : Form
             new FormField(nameof(ManagerModel.PersonalNumber), "Personal number", FieldKind.Text),
             new FormField(nameof(ManagerModel.Email), "Email", FieldKind.Text),
             new FormField(nameof(ManagerModel.PhoneNumber), "Phone", FieldKind.Text),
-            new FormField(nameof(ManagerModel.HotelId), "Hotel Id", FieldKind.Int))
+            new FormField(nameof(ManagerModel.HotelId), "Hotel", FieldKind.Select, HotelOptionsAsync))
         {
             GetId = m => m.Id,
             LoadList = () => _api.GetListAsync<ManagerModel>("api/Managers"),
@@ -455,16 +481,15 @@ public partial class MainForm : Form
 
     private EntityView<ReservationModel> BuildReservations()
     {
-        return new EntityView<ReservationModel>("Reservations",
+        return new EntityView<ReservationModel>("Reservations", 320,
             new FormField(nameof(ReservationModel.Id), "Id", FieldKind.Int, readOnly: true),
-            new FormField(nameof(ReservationModel.GuestId), "Guest Id", FieldKind.Int),
-            new FormField(nameof(ReservationModel.RoomIds), "Room ids (e.g. 1,2)", FieldKind.Text),
-            new FormField(nameof(ReservationModel.CheckInDate), "Check-in", FieldKind.Date),
-            new FormField(nameof(ReservationModel.CheckOutDate), "Check-out", FieldKind.Date),
+            new FormField(nameof(ReservationModel.GuestId), "Guest", FieldKind.Select, GuestOptionsAsync),
+            new FormField(nameof(ReservationModel.RoomIds), "Rooms", FieldKind.MultiSelect, RoomOptionsAsync),
+            new FormField(nameof(ReservationModel.Days), "Days (stay starts today)", FieldKind.Int, minimum: 1),
             new FormField(nameof(ReservationModel.TotalPrice), "Total price", FieldKind.Decimal, readOnly: true))
         {
             GetId = r => r.Id,
-            NewItem = () => new ReservationModel(),
+            NewItem = () => new ReservationModel { Days = 1 },
             LoadList = async () =>
             {
                 var dtos = await _api.GetListAsync<ReservationDtoJson>("api/Reservations");
@@ -472,24 +497,55 @@ public partial class MainForm : Form
                 {
                     Id = d.Id,
                     GuestId = d.GuestId,
-                    RoomIds = string.Join(",", d.RoomIds),
+                    RoomIds = d.RoomIds,
+                    RoomsSummary = string.Join(", ", d.RoomIds.Select(id => "#" + id)),
+                    Days = Math.Max(1, (d.CheckOutDate.Date - d.CheckInDate.Date).Days),
                     CheckInDate = d.CheckInDate,
                     CheckOutDate = d.CheckOutDate,
                     TotalPrice = d.TotalPrice
                 }).ToList();
             },
-            CreateItem = r => _api.PostAsync("api/Reservations", new { r.GuestId, RoomIds = ParseIds(r.RoomIds), r.CheckInDate, r.CheckOutDate }),
-            UpdateItem = r => _api.PutAsync($"api/Reservations/{r.Id}", new { r.CheckInDate, r.CheckOutDate }),
+            // The guest chooses how many days; the stay starts today and the dates are derived.
+            // For a Guest, GuestId is 0 (dropdown hidden) and the server derives it from their login email.
+            CreateItem = r => _api.PostAsync("api/Reservations", new
+            {
+                r.GuestId,
+                r.RoomIds,
+                CheckInDate = DateTime.Today,
+                CheckOutDate = DateTime.Today.AddDays(Math.Max(1, r.Days))
+            }),
+            UpdateItem = r => _api.PutAsync($"api/Reservations/{r.Id}", new
+            {
+                CheckInDate = DateTime.Today,
+                CheckOutDate = DateTime.Today.AddDays(Math.Max(1, r.Days))
+            }),
             DeleteItem = r => _api.DeleteAsync($"api/Reservations/{r.Id}")
         };
     }
 
-    private static List<int> ParseIds(string csv) =>
-        (csv ?? string.Empty)
-            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(s => int.TryParse(s, out var n) ? n : -1)
-            .Where(n => n > 0)
+    // ---- Dropdown / checklist option sources ---------------------------------
+    private async Task<IReadOnlyList<SelectOption>> HotelOptionsAsync()
+    {
+        var hotels = await _api.GetListAsync<HotelModel>("api/Hotels");
+        return hotels.Select(h => new SelectOption(h.Id, $"{h.Name} — {h.City}")).ToList();
+    }
+
+    private async Task<IReadOnlyList<SelectOption>> GuestOptionsAsync()
+    {
+        var guests = await _api.GetListAsync<GuestModel>("api/Guests");
+        return guests.Select(g => new SelectOption(g.Id, $"{g.FirstName} {g.LastName} ({g.PersonalNumber})")).ToList();
+    }
+
+    private async Task<IReadOnlyList<SelectOption>> RoomOptionsAsync()
+    {
+        var hotels = await _api.GetListAsync<HotelModel>("api/Hotels");
+        var hotelNames = hotels.ToDictionary(h => h.Id, h => h.Name);
+        var rooms = await _api.GetListAsync<RoomModel>("api/Rooms");
+        return rooms
+            .Select(r => new SelectOption(r.Id,
+                $"{r.Name} — {(hotelNames.TryGetValue(r.HotelId, out var n) ? n : "Hotel " + r.HotelId)} (${r.Price:0})"))
             .ToList();
+    }
 
     // ---- Small helpers -------------------------------------------------------
     private static void Info(string text) => MessageBox.Show(text, "Info", MessageBoxButtons.OK, MessageBoxIcon.Information);
